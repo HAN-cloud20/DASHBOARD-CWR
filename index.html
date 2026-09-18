@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CWR Monitoring Dashboard 2026</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<style>
+:root {
+  --blue: #1e3a5f; --blue2: #2d6a9f; --blue3: #63b3ed;
+  --green: #38a169; --orange: #ed8936; --red: #e53e3e;
+  --bg: #f0f4f8; --card: #ffffff; --border: #e2e8f0;
+  --text: #1a202c; --muted: #718096; --light: #f7fafc;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); padding: 20px; }
+
+/* HEADER */
+.header {
+  background: linear-gradient(135deg, var(--blue) 0%, var(--blue2) 100%);
+  color: white; border-radius: 14px; padding: 22px 28px;
+  margin-bottom: 18px; display: flex; justify-content: space-between; align-items: center;
+  box-shadow: 0 4px 20px rgba(30,58,95,0.25);
+}
+.header-left h1 { font-size: 1.45rem; font-weight: 800; letter-spacing: 0.2px; }
+.header-left p { font-size: 0.8rem; opacity: 0.8; margin-top: 5px; }
+.header-right { text-align: right; }
+.badge-live { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); border-radius: 20px; padding: 4px 12px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 8px; display: inline-block; }
+.badge-live::before { content: '●'; color: #68d391; margin-right: 5px; }
+#statusText { font-size: 0.72rem; opacity: 0.75; }
+.refresh-btn {
+  background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.35);
+  color: white; border-radius: 8px; padding: 7px 14px; font-size: 0.78rem;
+  font-weight: 600; cursor: pointer; margin-top: 8px; display: block; width: 100%;
+  transition: background 0.2s;
+}
+.refresh-btn:hover { background: rgba(255,255,255,0.3); }
+.refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* LOADING */
+#loadingOverlay {
+  position: fixed; inset: 0; background: rgba(240,244,248,0.9);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100;
+}
+.spinner { width: 48px; height: 48px; border: 4px solid var(--border); border-top-color: var(--blue2); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#loadingText { font-size: 0.9rem; color: var(--muted); font-weight: 500; }
+
+/* FILTERS */
+.filters {
+  background: var(--card); border-radius: 12px; padding: 14px 20px;
+  margin-bottom: 18px; display: flex; gap: 14px; align-items: center;
+  flex-wrap: wrap; box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+}
+.fg { display: flex; align-items: center; gap: 7px; }
+.fg label { font-size: 0.78rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+.fg select {
+  border: 1.5px solid var(--border); border-radius: 8px;
+  padding: 6px 10px; font-size: 0.82rem; background: var(--light); cursor: pointer; outline: none;
+}
+.fg select:focus { border-color: var(--blue2); }
+.divider { width: 1px; height: 24px; background: var(--border); }
+.record-count { margin-left: auto; font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+.reset-btn { background: var(--blue2); color: white; border: none; border-radius: 8px; padding: 6px 14px; font-size: 0.78rem; font-weight: 600; cursor: pointer; }
+.reset-btn:hover { background: var(--blue); }
+
+/* KPI */
+.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
+.kpi { background: var(--card); border-radius: 12px; padding: 18px 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); border-left: 4px solid transparent; position: relative; overflow: hidden; }
+.kpi.k-blue { border-left-color: var(--blue2); }
+.kpi.k-orange { border-left-color: var(--orange); }
+.kpi.k-red { border-left-color: var(--red); }
+.kpi.k-green { border-left-color: var(--green); }
+.kpi .klabel { font-size: 0.7rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.kpi .kval { font-size: 1.9rem; font-weight: 900; margin: 6px 0 3px; line-height: 1; }
+.kpi .ksub { font-size: 0.72rem; color: var(--muted); }
+.kpi .kicon { position: absolute; right: 16px; top: 14px; font-size: 1.7rem; opacity: 0.1; }
+
+/* CHART GRID */
+.row { display: grid; gap: 14px; margin-bottom: 14px; }
+.r3 { grid-template-columns: 1fr 2fr 1fr; }
+.r2 { grid-template-columns: 1.2fr 1.8fr; }
+.r2eq { grid-template-columns: 1fr 1fr; }
+.card { background: var(--card); border-radius: 12px; padding: 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+.card h3 { font-size: 0.82rem; font-weight: 800; color: #2d3748; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+.card .sub { font-size: 0.72rem; color: #a0aec0; margin-bottom: 12px; }
+.ch { position: relative; }
+
+/* SITE BARS */
+.sr { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
+.sl { font-size: 0.76rem; font-weight: 700; color: #4a5568; min-width: 50px; }
+.sb { flex: 1; background: var(--border); border-radius: 4px; height: 9px; overflow: hidden; }
+.sf { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--blue2), var(--blue3)); }
+.sc { font-size: 0.74rem; color: var(--muted); min-width: 28px; text-align: right; }
+
+/* AGING TABLE */
+.at { width: 100%; border-collapse: collapse; margin-top: 4px; }
+.at th { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; padding: 5px 7px; text-align: left; border-bottom: 2px solid var(--border); }
+.at td { font-size: 0.78rem; padding: 6px 7px; border-bottom: 1px solid var(--light); }
+.at tr:last-child td { border-bottom: none; }
+.abbg { background: var(--border); border-radius: 3px; height: 7px; overflow: hidden; }
+.abf { height: 100%; border-radius: 3px; }
+
+/* OUTSTANDING TABLE */
+.outstanding-card { background: var(--card); border-radius: 12px; padding: 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); margin-bottom: 14px; }
+.outstanding-card h3 { font-size: 0.82rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+.outstanding-card .sub { font-size: 0.72rem; color: #a0aec0; margin-bottom: 14px; }
+.ot-wrap { overflow-x: auto; }
+.ot { width: 100%; border-collapse: collapse; font-size: 0.78rem; min-width: 900px; }
+.ot th { background: #fff8f0; font-size: 0.68rem; font-weight: 800; color: #c05621; text-transform: uppercase; letter-spacing: 0.3px; padding: 8px 10px; text-align: left; border-bottom: 2px solid #fbd38d; white-space: nowrap; position: sticky; top: 0; z-index: 1; }
+.ot td { padding: 8px 10px; border-bottom: 1px solid var(--light); vertical-align: top; }
+.ot tr:hover td { background: #fffaf0; }
+.ot tr:last-child td { border-bottom: none; }
+.ot .cwrn { font-weight: 700; color: var(--blue2); font-size: 0.72rem; white-space: nowrap; }
+.ot .prob { max-width: 170px; color: #4a5568; font-size: 0.74rem; }
+.ot .amt { font-weight: 700; color: var(--red); white-space: nowrap; }
+.ot .aging-val { font-weight: 700; }
+.aging-hi { color: #c53030; }
+.aging-md { color: #c05621; }
+.aging-lo { color: #276749; }
+.doc-link { color: var(--blue2); text-decoration: none; font-size: 0.72rem; white-space: nowrap; }
+.doc-link:hover { text-decoration: underline; }
+
+/* PILLS */
+.pill { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.66rem; font-weight: 700; white-space: nowrap; }
+.p-approved { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
+.p-considering { background: #fff8f0; color: #c05621; border: 1px solid #fbd38d; }
+.p-reject { background: #fff5f5; color: #c53030; border: 1px solid #fc8181; }
+.p-open { background: #fff5f5; color: #c53030; border: 1px solid #fc8181; }
+.p-close { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
+.p-unknown { background: #f7fafc; color: #718096; border: 1px solid #e2e8f0; }
+
+.bdg { display: inline-block; padding: 1px 7px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; }
+.bdg-r { background: #fff5f5; color: #c53030; }
+.bdg-o { background: #fffaf0; color: #c05621; }
+.bdg-y { background: #fffff0; color: #744210; }
+.bdg-g { background: #f0fff4; color: #276749; }
+
+/* ALERT BAR */
+.alert-bar { background: #fff8f0; border: 1px solid #fbd38d; border-left: 4px solid var(--orange); border-radius: 8px; padding: 10px 16px; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; }
+.alert-bar span { font-size: 0.78rem; color: #c05621; font-weight: 600; }
+.alert-bar .count { background: var(--orange); color: white; border-radius: 12px; padding: 2px 9px; font-size: 0.72rem; font-weight: 800; }
+
+footer { text-align: center; font-size: 0.7rem; color: var(--muted); margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+footer a { color: var(--blue2); text-decoration: none; }
+
+/* Error */
+.error-card { background: #fff5f5; border: 1px solid #fc8181; border-radius: 10px; padding: 16px 20px; text-align: center; color: #c53030; font-size: 0.85rem; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <div id="loadingText">Mengambil data dari Google Sheets…</div>
+</div>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-left">
+    <h1>📋 CWR Monitoring Dashboard</h1>
+    <p>Customer Warranty Return — Plant Monitoring 2026 · Live from Google Sheets</p>
+  </div>
+  <div class="header-right">
+    <div class="badge-live">LIVE DATA</div>
+    <div id="statusText">Loading…</div>
+    <button class="refresh-btn" id="refreshBtn" onclick="loadData()">⟳ Refresh Data</button>
+  </div>
+</div>
+
+<!-- ERROR -->
+<div id="errorCard" class="error-card" style="display:none">
+  ⚠️ Gagal mengambil data dari Google Sheets. Pastikan spreadsheet di-share ke "Anyone with the link" dan coba refresh.
+</div>
+
+<!-- FILTERS -->
+<div class="filters">
+  <div class="fg"><label>📅 Year</label>
+    <select id="fYear"><option value="ALL">All Years</option></select>
+  </div>
+  <div class="divider"></div>
+  <div class="fg"><label>🗓 Month</label>
+    <select id="fMonth">
+      <option value="ALL">All Months</option>
+      <option value="1">January</option><option value="2">February</option><option value="3">March</option>
+      <option value="4">April</option><option value="5">May</option><option value="6">June</option>
+      <option value="7">July</option><option value="8">August</option><option value="9">September</option>
+      <option value="10">October</option><option value="11">November</option><option value="12">December</option>
+    </select>
+  </div>
+  <div class="divider"></div>
+  <div class="fg"><label>🏭 Site</label>
+    <select id="fSite"><option value="ALL">All Sites</option></select>
+  </div>
+  <button class="reset-btn" onclick="resetFilters()">↺ Reset</button>
+  <div class="record-count" id="recCount">— records</div>
+</div>
+
+<!-- KPI -->
+<div class="kpi-grid">
+  <div class="kpi k-blue"><div class="kicon">📋</div><div class="klabel">Total CWR</div><div class="kval" id="kTotal">—</div><div class="ksub" id="kTotalSub">entries</div></div>
+  <div class="kpi k-orange"><div class="kicon">⏳</div><div class="klabel">Avg Aging (Days)</div><div class="kval" id="kAging">—</div><div class="ksub" id="kAgingSub">avg processing time</div></div>
+  <div class="kpi k-red"><div class="kicon">⚠️</div><div class="klabel">Open CWR</div><div class="kval" id="kOpen">—</div><div class="ksub" id="kOpenSub">breakdown open</div></div>
+  <div class="kpi k-green"><div class="kicon">💰</div><div class="klabel">Total Potential Loss</div><div class="kval" id="kAmount">—</div><div class="ksub" id="kAmountSub">IDR</div></div>
+</div>
+
+<!-- ROW 1 -->
+<div class="row r3">
+  <div class="card"><h3>Approval Ratio</h3><div class="sub">Approve / Reject / Considering</div><div class="ch" style="height:210px"><canvas id="cApproval"></canvas></div></div>
+  <div class="card"><h3>CWR by Month</h3><div class="sub">Jumlah CWR per bulan</div><div class="ch" style="height:210px"><canvas id="cMonthly"></canvas></div></div>
+  <div class="card"><h3>Breakdown Status</h3><div class="sub">Open vs Close</div><div class="ch" style="height:210px"><canvas id="cBreakdown"></canvas></div></div>
+</div>
+
+<!-- ROW 2 -->
+<div class="row r2">
+  <div class="card"><h3>Aging Distribution</h3><div class="sub">Jumlah CWR per range waktu proses</div><div class="ch" style="height:200px"><canvas id="cAging"></canvas></div></div>
+  <div class="card"><h3>Potential Amount Losses by Month</h3><div class="sub">Total potensi klaim per bulan (IDR)</div><div class="ch" style="height:200px"><canvas id="cAmount"></canvas></div></div>
+</div>
+
+<!-- ROW 3 -->
+<div class="row r2eq">
+  <div class="card"><h3>CWR by Site</h3><div class="sub">Distribusi per site</div><div id="sSite"></div></div>
+  <div class="card"><h3>Aging Detail</h3><div class="sub">Kategori waktu pemrosesan</div>
+    <table class="at"><thead><tr><th>Range</th><th>Count</th><th>%</th><th>Bar</th></tr></thead><tbody id="agingBody"></tbody></table>
+  </div>
+</div>
+
+<!-- OUTSTANDING CWR ALERT -->
+<div class="alert-bar" id="alertBar">
+  <span>⚠️ Outstanding CWR (Considering) — Perlu perhatian segera:</span>
+  <span class="count" id="outstandingCount">0</span>
+</div>
+
+<!-- OUTSTANDING TABLE -->
+<div class="outstanding-card">
+  <h3 style="color:#c05621">🔔 Outstanding CWR — Status: Considering</h3>
+  <div class="sub">Daftar CWR yang masih dalam pertimbangan approval — belum diputuskan Approve/Reject</div>
+  <div class="ot-wrap">
+    <table class="ot">
+      <thead>
+        <tr>
+          <th>#</th><th>CWR Number</th><th>Site</th><th>Claim Date</th>
+          <th>Brand / Model</th><th>Component</th><th>Problem</th>
+          <th>PIC</th><th>Aging (Days)</th><th>Breakdown</th><th>Potential (IDR)</th><th>Remarks</th><th>Doc</th>
+        </tr>
+      </thead>
+      <tbody id="outstandingBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<footer>
+  CWR Plant Monitoring Dashboard · Live data from
+  <a href="https://docs.google.com/spreadsheets/d/1bNVZX6PJvSyXyOCEM5wXVzPbrtYTWgJTqf2xNKi_RFQ/edit?usp=sharing" target="_blank">Google Sheets</a>
+  · Refreshed setiap kali halaman dibuka · <span id="footerDate"></span>
+</footer>
+
+<script>
+const SHEET_ID = '1bNVZX6PJvSyXyOCEM5wXVzPbrtYTWgJTqf2xNKi_RFQ';
+const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=0`;
+const MN = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+let ALL_DATA = [];
+let charts = {};
+
+// ── HELPERS ─────────────────────────────────────────────────────────────────
+function fIDR(n) {
+  if (!n || isNaN(n)) return '—';
+  if (n >= 1e12) return 'Rp ' + (n/1e12).toFixed(2) + ' T';
+  if (n >= 1e9)  return 'Rp ' + (n/1e9).toFixed(2) + ' M';
+  if (n >= 1e6)  return 'Rp ' + (n/1e6).toFixed(1) + ' Jt';
+  return 'Rp ' + n.toLocaleString('id-ID');
+}
+function fIDRFull(n) {
+  if (!n || isNaN(n)) return '—';
+  return 'Rp ' + Math.round(n).toLocaleString('id-ID');
+}
+function normApproval(s) {
+  if (!s) return 'Unknown';
+  const sl = s.trim().toLowerCase();
+  if (sl.includes('approved') || sl === 'aprroved') return 'Approved';
+  if (sl.includes('reject')) return 'Reject';
+  if (sl.includes('consider')) return 'Considering';
+  if (sl === 'close') return 'Close';
+  return 'Other';
+}
+function normBreakdown(s) {
+  if (!s) return 'Unknown';
+  const sl = s.trim().toLowerCase();
+  if (sl.startsWith('close')) return 'Close';
+  if (sl.startsWith('open')) return 'Open';
+  return 'Unknown';
+}
+function parseAmount(s) {
+  if (!s) return null;
+  const n = parseFloat(String(s).replace(/[^0-9.]/g, ''));
+  return isNaN(n) ? null : n;
+}
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+function agingBucket(d) {
+  if (d === null || d === undefined || isNaN(d)) return null;
+  d = parseFloat(d);
+  if (d <= 7) return '0-7 days'; if (d <= 14) return '8-14 days';
+  if (d <= 30) return '15-30 days'; if (d <= 60) return '31-60 days';
+  if (d <= 90) return '61-90 days'; return '90+ days';
+}
+function agingClass(d) {
+  if (!d) return ''; d = parseFloat(d);
+  if (d > 60) return 'aging-hi'; if (d > 30) return 'aging-md'; return 'aging-lo';
+}
+function pillApproval(s) {
+  const n = normApproval(s);
+  const cls = {Approved:'p-approved',Considering:'p-considering',Reject:'p-reject',Close:'p-close'}[n]||'p-unknown';
+  return `<span class="pill ${cls}">${n}</span>`;
+}
+function pillBreakdown(s) {
+  const n = normBreakdown(s);
+  return `<span class="pill ${n==='Open'?'p-open':'p-close'}">${n}</span>`;
+}
+
+// ── PARSE CSV ────────────────────────────────────────────────────────────────
+function parseCSV(csv) {
+  const result = Papa.parse(csv, { skipEmptyLines: true });
+  const rows = result.data;
+  if (rows.length < 2) return [];
+  // Skip header row (index 0)
+  const records = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r[1] && !r[2]) continue; // skip empty rows
+    const yr = parseInt(r[7]) || null;
+    const mo = parseInt(r[6]) || null;
+    const aging = parseFloat(r[31]) || null;
+    records.push({
+      no: r[0],
+      cwr_number: r[1] || '',
+      site: r[2] || '',
+      breakdown_date: r[3] || '',
+      claim_date: r[4] || '',
+      month: mo,
+      year: yr,
+      brand: r[8] || '',
+      model: r[9] || '',
+      cn_unit: r[11] || '',
+      parts: r[13] || '',
+      component_group: r[14] || '',
+      problem: r[19] || '',
+      corrective_action: r[20] || '',
+      cwr_link: r[21] || '',
+      breakdown_status: r[23] || '',
+      approval_status: r[24] || '',
+      claim_close_date: r[25] || '',
+      claim_status: r[26] || '',
+      pic: r[29] || '',
+      aging_days: aging,
+      remarks: r[32] || '',
+      potential_amount: parseAmount(r[34]),
+      claim_number: r[35] || '',
+      approval_norm: normApproval(r[24]),
+      breakdown_norm: normBreakdown(r[23]),
+    });
+  }
+  return records;
+}
+
+// ── LOAD DATA ────────────────────────────────────────────────────────────────
+async function loadData() {
+  document.getElementById('loadingOverlay').style.display = 'flex';
+  document.getElementById('errorCard').style.display = 'none';
+  document.getElementById('refreshBtn').disabled = true;
+  document.getElementById('loadingText').textContent = 'Mengambil data dari Google Sheets…';
+
+  try {
+    const resp = await fetch(CSV_URL);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const csv = await resp.text();
+    ALL_DATA = parseCSV(csv);
+
+    // Populate year filter
+    const years = [...new Set(ALL_DATA.map(r => r.year).filter(Boolean))].sort();
+    const fy = document.getElementById('fYear');
+    // Preserve current selection
+    const prevYear = fy.value;
+    while (fy.options.length > 1) fy.remove(1);
+    years.forEach(y => { const o = new Option(y, y); fy.appendChild(o); });
+    // Default to 2026 if available, else keep previous
+    if (years.includes(2026) && (prevYear === 'ALL' || prevYear === '2026')) {
+      fy.value = '2026';
+    } else if (prevYear !== 'ALL') {
+      fy.value = prevYear;
+    }
+
+    // Populate site filter
+    const sites = [...new Set(ALL_DATA.map(r => r.site).filter(Boolean))].sort();
+    const fs = document.getElementById('fSite');
+    const prevSite = fs.value;
+    while (fs.options.length > 1) fs.remove(1);
+    sites.forEach(s => { const o = new Option(s, s); fs.appendChild(o); });
+    if (prevSite !== 'ALL') fs.value = prevSite;
+
+    const now = new Date();
+    document.getElementById('statusText').textContent =
+      `${ALL_DATA.length} records · Updated ${now.toLocaleString('id-ID')}`;
+    document.getElementById('footerDate').textContent =
+      `Last fetch: ${now.toLocaleString('id-ID')}`;
+
+    updateDashboard();
+  } catch (err) {
+    console.error(err);
+    document.getElementById('errorCard').style.display = 'block';
+    document.getElementById('statusText').textContent = 'Gagal memuat data';
+  } finally {
+    document.getElementById('loadingOverlay').style.display = 'none';
+    document.getElementById('refreshBtn').disabled = false;
+  }
+}
+
+// ── FILTER ───────────────────────────────────────────────────────────────────
+function getFiltered() {
+  const yr = document.getElementById('fYear').value;
+  const mo = document.getElementById('fMonth').value;
+  const si = document.getElementById('fSite').value;
+  return ALL_DATA.filter(r => {
+    if (yr !== 'ALL' && String(r.year) !== yr) return false;
+    if (mo !== 'ALL' && String(r.month) !== mo) return false;
+    if (si !== 'ALL' && r.site !== si) return false;
+    return true;
+  });
+}
+function resetFilters() {
+  document.getElementById('fYear').value = '2026';
+  document.getElementById('fMonth').value = 'ALL';
+  document.getElementById('fSite').value = 'ALL';
+  updateDashboard();
+}
+
+// ── UPDATE DASHBOARD ─────────────────────────────────────────────────────────
+function updateDashboard() {
+  const data = getFiltered();
+  document.getElementById('recCount').textContent = `${data.length} records`;
+
+  // ── KPIs ──
+  const total = data.length;
+  document.getElementById('kTotal').textContent = total.toLocaleString();
+
+  const agingVals = data.map(r => r.aging_days).filter(v => v !== null && !isNaN(v));
+  const avgAging = agingVals.length ? agingVals.reduce((a,b)=>a+b,0)/agingVals.length : 0;
+  document.getElementById('kAging').textContent = avgAging.toFixed(1);
+  document.getElementById('kAgingSub').textContent =
+    agingVals.length ? `Max: ${Math.max(...agingVals).toFixed(0)} days · n=${agingVals.length}` : 'No aging data';
+
+  const openCnt = data.filter(r => r.breakdown_norm === 'Open').length;
+  document.getElementById('kOpen').textContent = openCnt.toLocaleString();
+  document.getElementById('kOpenSub').textContent = total ? `${((openCnt/total)*100).toFixed(1)}% dari total` : '';
+
+  const amounts = data.filter(r => r.potential_amount && r.potential_amount > 0).map(r => r.potential_amount);
+  const totalAmt = amounts.reduce((a,b)=>a+b,0);
+  document.getElementById('kAmount').textContent = fIDR(totalAmt);
+  document.getElementById('kAmountSub').textContent = `dari ${amounts.length} CWR`;
+
+  // ── APPROVAL DONUT ──
+  const ac = {Approved:0, Considering:0, Reject:0};
+  data.forEach(r => { if (ac[r.approval_norm] !== undefined) ac[r.approval_norm]++; });
+  destroyChart('approval');
+  charts.approval = new Chart(document.getElementById('cApproval'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Approved','Considering','Reject'],
+      datasets: [{ data: [ac.Approved, ac.Considering, ac.Reject], backgroundColor: ['#38a169','#ed8936','#e53e3e'], borderWidth: 2, borderColor: '#fff' }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '60%',
+      plugins: {
+        legend: { position: 'bottom', labels: { font:{size:10}, padding:8, boxWidth:11 } },
+        tooltip: { callbacks: { label: ctx => {
+          const tot = ac.Approved+ac.Considering+ac.Reject || 1;
+          return ` ${ctx.label}: ${ctx.raw} (${((ctx.raw/tot)*100).toFixed(1)}%)`;
+        }}}
+      }
+    }
+  });
+
+  // ── MONTHLY BAR ──
+  const mc = {}; data.forEach(r => { if(r.month) mc[r.month]=(mc[r.month]||0)+1; });
+  const mVals = [1,2,3,4,5,6,7,8,9,10,11,12].map(m => mc[m]||0);
+  const mMax = Math.max(...mVals, 1);
+  destroyChart('monthly');
+  charts.monthly = new Chart(document.getElementById('cMonthly'), {
+    type: 'bar',
+    data: {
+      labels: MN.slice(1),
+      datasets: [{ data: mVals, backgroundColor: mVals.map(v => `rgba(45,106,159,${0.35+0.65*(v/mMax)})`), borderRadius: 5, borderSkipped: false }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend:{display:false}, tooltip:{callbacks:{label:ctx=>` ${ctx.raw} CWR`}} },
+      scales: { x:{grid:{display:false},ticks:{font:{size:10}}}, y:{grid:{color:'#f0f4f8'},beginAtZero:true,ticks:{font:{size:10}}} }
+    }
+  });
+
+  // ── BREAKDOWN DONUT ──
+  const bd = {Open:0, Close:0};
+  data.forEach(r => { if(bd[r.breakdown_norm]!==undefined) bd[r.breakdown_norm]++; });
+  destroyChart('breakdown');
+  charts.breakdown = new Chart(document.getElementById('cBreakdown'), {
+    type: 'doughnut',
+    data: { labels:['Open','Close'], datasets:[{ data:[bd.Open,bd.Close], backgroundColor:['#e53e3e','#38a169'], borderWidth:2, borderColor:'#fff' }] },
+    options: {
+      responsive:true, maintainAspectRatio:false, cutout:'60%',
+      plugins:{ legend:{position:'bottom',labels:{font:{size:10},padding:8,boxWidth:11}},
+        tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${ctx.raw}`}} }
+    }
+  });
+
+  // ── AGING BAR (horizontal) ──
+  const bkts = ['0-7 days','8-14 days','15-30 days','31-60 days','61-90 days','90+ days'];
+  const bClr = ['#38a169','#68d391','#ed8936','#fc8181','#e53e3e','#9b2c2c'];
+  const bCls = ['bdg-g','bdg-g','bdg-y','bdg-o','bdg-r','bdg-r'];
+  const bc = {}; data.forEach(r => { const b=agingBucket(r.aging_days); if(b) bc[b]=(bc[b]||0)+1; });
+  const bVals = bkts.map(b => bc[b]||0);
+  destroyChart('aging');
+  charts.aging = new Chart(document.getElementById('cAging'), {
+    type:'bar',
+    data:{ labels:bkts, datasets:[{data:bVals,backgroundColor:bClr,borderRadius:5,borderSkipped:false}] },
+    options:{
+      responsive:true, maintainAspectRatio:false, indexAxis:'y',
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:ctx=>` ${ctx.raw} CWR`}} },
+      scales:{ x:{grid:{color:'#f0f4f8'},beginAtZero:true,ticks:{font:{size:10}}}, y:{grid:{display:false},ticks:{font:{size:10}}} }
+    }
+  });
+
+  // Aging table
+  const btot = bVals.reduce((a,b)=>a+b,0);
+  document.getElementById('agingBody').innerHTML = bkts.map((b,i) => {
+    const c=bVals[i], p=btot?((c/btot)*100).toFixed(1):'0';
+    return `<tr>
+      <td><span class="bdg ${bCls[i]}">${b}</span></td>
+      <td style="font-weight:700">${c}</td><td>${p}%</td>
+      <td style="width:100px"><div class="abbg"><div class="abf" style="width:${btot?(c/btot*100):0}%;background:${bClr[i]}"></div></div></td>
+    </tr>`;
+  }).join('');
+
+  // ── AMOUNT BY MONTH ──
+  const am = {}; data.forEach(r => { if(r.month&&r.potential_amount&&r.potential_amount>0) am[r.month]=(am[r.month]||0)+r.potential_amount; });
+  const amVals = [1,2,3,4,5,6,7,8,9,10,11,12].map(m => (am[m]||0)/1e6);
+  destroyChart('amount');
+  charts.amount = new Chart(document.getElementById('cAmount'), {
+    type:'bar',
+    data:{ labels:MN.slice(1), datasets:[{data:amVals,backgroundColor:'rgba(229,62,62,0.7)',borderRadius:5,borderSkipped:false,borderColor:'rgba(229,62,62,1)',borderWidth:1}] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:ctx=>` Rp ${ctx.raw.toFixed(1)} Juta`}} },
+      scales:{
+        x:{grid:{display:false},ticks:{font:{size:10}}},
+        y:{grid:{color:'#f0f4f8'},beginAtZero:true,ticks:{font:{size:10},callback:v=>v>=1000?`Rp ${(v/1000).toFixed(0)}M`:v>=1?`Rp ${v.toFixed(0)}Jt`:''}}
+      }
+    }
+  });
+
+  // ── SITE BARS ──
+  const sc = {}; data.forEach(r => { if(r.site) sc[r.site]=(sc[r.site]||0)+1; });
+  const sp = Object.entries(sc).sort((a,b)=>b[1]-a[1]);
+  const ms = sp[0]?.[1]||1;
+  document.getElementById('sSite').innerHTML = sp.map(([s,c]) =>
+    `<div class="sr"><div class="sl">${s}</div><div class="sb"><div class="sf" style="width:${(c/ms*100).toFixed(1)}%"></div></div><div class="sc">${c}</div></div>`
+  ).join('');
+
+  // ── OUTSTANDING CWR (Considering) ──
+  const outstanding = data
+    .filter(r => r.approval_norm === 'Considering')
+    .sort((a,b) => {
+      // Sort by aging desc (most critical first), then by site
+      const ad = a.aging_days || 0, bd2 = b.aging_days || 0;
+      return bd2 - ad;
+    });
+
+  document.getElementById('outstandingCount').textContent = outstanding.length;
+  document.getElementById('alertBar').style.display = outstanding.length ? 'flex' : 'none';
+
+  document.getElementById('outstandingBody').innerHTML = outstanding.length
+    ? outstanding.map((r, i) => {
+        const aging = r.aging_days !== null ? r.aging_days : '—';
+        const agCls = r.aging_days !== null ? agingClass(r.aging_days) : '';
+        const docCell = r.cwr_link
+          ? `<a class="doc-link" href="${r.cwr_link}" target="_blank">📄 View</a>`
+          : '—';
+        return `<tr>
+          <td style="color:var(--muted);font-size:0.7rem">${r.no||i+1}</td>
+          <td class="cwrn">${r.cwr_number}</td>
+          <td><strong>${r.site}</strong></td>
+          <td style="white-space:nowrap;font-size:0.74rem">${r.claim_date}</td>
+          <td style="white-space:nowrap;font-size:0.74rem">${r.brand} ${r.model}</td>
+          <td style="font-size:0.74rem">${r.parts||'—'}<br><span style="color:var(--muted);font-size:0.68rem">${r.component_group||''}</span></td>
+          <td class="prob" title="${r.problem}">${r.problem||'—'}</td>
+          <td style="font-size:0.74rem;white-space:nowrap">${r.pic||'—'}</td>
+          <td class="aging-val ${agCls}">${aging}</td>
+          <td>${pillBreakdown(r.breakdown_status)}</td>
+          <td class="amt">${fIDRFull(r.potential_amount)}</td>
+          <td style="font-size:0.72rem;color:var(--muted);max-width:150px">${r.remarks||'—'}</td>
+          <td>${docCell}</td>
+        </tr>`;
+      }).join('')
+    : `<tr><td colspan="13" style="text-align:center;padding:30px;color:var(--muted)">✅ Tidak ada CWR outstanding dengan status Considering</td></tr>`;
+}
+
+// ── INIT ─────────────────────────────────────────────────────────────────────
+['fYear','fMonth','fSite'].forEach(id =>
+  document.getElementById(id).addEventListener('change', updateDashboard)
+);
+loadData();
+</script>
+</body>
+</html>
