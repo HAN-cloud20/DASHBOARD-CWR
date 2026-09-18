@@ -82,6 +82,7 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
 .r3 { grid-template-columns: 1fr 2fr 1fr; }
 .r2 { grid-template-columns: 1.2fr 1.8fr; }
 .r2eq { grid-template-columns: 1fr 1fr; }
+.r3eq { grid-template-columns: 1fr 1fr 1fr; }
 .card { background: var(--card); border-radius: 12px; padding: 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
 .card h3 { font-size: 0.82rem; font-weight: 800; color: #2d3748; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
 .card .sub { font-size: 0.72rem; color: #a0aec0; margin-bottom: 12px; }
@@ -220,8 +221,12 @@ footer a { color: var(--blue2); text-decoration: none; }
 </div>
 
 <!-- ROW 3 -->
-<div class="row r2eq">
+<div class="row r3eq">
   <div class="card"><h3>CWR by Site</h3><div class="sub">Distribusi per site</div><div id="sSite"></div></div>
+  <div class="card">
+    <h3>🏆 Top 5 CWR by Brand</h3><div class="sub">Brand dengan CWR terbanyak</div>
+    <div id="sBrand"></div>
+  </div>
   <div class="card"><h3>Aging Detail</h3><div class="sub">Kategori waktu pemrosesan</div>
     <table class="at"><thead><tr><th>Range</th><th>Count</th><th>%</th><th>Bar</th></tr></thead><tbody id="agingBody"></tbody></table>
   </div>
@@ -566,6 +571,22 @@ function updateDashboard() {
   document.getElementById('sSite').innerHTML = sp.map(([s,c]) =>
     `<div class="sr"><div class="sl">${s}</div><div class="sb"><div class="sf" style="width:${(c/ms*100).toFixed(1)}%"></div></div><div class="sc">${c}</div></div>`
   ).join('');
+
+  // ── TOP 5 BRAND ──
+  const brandColors = ['#2d6a9f','#38a169','#ed8936','#e53e3e','#805ad5'];
+  const bc2 = {}; data.forEach(r => { if(r.brand) bc2[r.brand]=(bc2[r.brand]||0)+1; });
+  const top5 = Object.entries(bc2).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const mb = top5[0]?.[1]||1;
+  document.getElementById('sBrand').innerHTML = top5.length
+    ? top5.map(([b,c],i) => {
+        const pct = (c / total * 100).toFixed(1);
+        return `<div class="sr">
+          <div class="sl" style="min-width:72px;font-size:0.74rem">${b}</div>
+          <div class="sb"><div class="sf" style="width:${(c/mb*100).toFixed(1)}%;background:${brandColors[i]}"></div></div>
+          <div style="font-size:0.74rem;color:var(--muted);min-width:48px;text-align:right">${c} <span style="color:#a0aec0">(${pct}%)</span></div>
+        </div>`;
+      }).join('')
+    : '<div style="color:var(--muted);font-size:0.8rem;padding:20px 0">No data</div>';
 
   // ── OUTSTANDING CWR (Considering) ──
   const outstanding = data
